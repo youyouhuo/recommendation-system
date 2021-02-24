@@ -155,16 +155,11 @@ attention(Q, K, V) = softmax( Q * transport(K) / sqrt(dk) )  V
 def attention(query, key, value, mask = None, dropout = None):
     """
     compote scaled dot product attention
-    :param query:
-    :param key:
-    :param value:
-    :param mask:
-    :param dropout:
-    :return:
     """
-    d_k = query.size(-1)
+    d_k = query.size(-1)   
     score = torch.matmul(query, key.transpose(-2, -1))/math.sqrt(d_k)
     if mask is not None:
+        ###传入一个mask，遮盖掉那些不应该存在的值，（decoder中，要先遮住的值）
         score = score.masked_fill(mask == 0, -1e9)
     p_attn = F.softmax(score, dim= -1)
     if dropout is not None:
@@ -173,11 +168,22 @@ def attention(query, key, value, mask = None, dropout = None):
 
 
 class MultiHeadedAttention(nn.Module):
+    """
+    原始公式是这样：
+    MultiHead(Q,K,V) = concat(head1,......,headn)WO
+    其中，headi = Attention(Q* WiQ, K*WiK, V*WiV)
+    参数WiQ，WiK，WiV都是 d_model * dk的
+    
+    这里的实现，直接一步到位
+    
+    """
     def __init__(self, h, d_model, dropout = 0.1):
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
         self.d_k = d_model // h
         self.h  = h
+        #linear is  y = x * transpose(w) + b
+        ###that is input batch,d_model,  output batch,d_model
         self.linear = clones(nn.Linear(d_model, d_model), 4)
         self.attn = None
         self.dropout = nn.Dropout(p = dropout)
@@ -186,9 +192,18 @@ class MultiHeadedAttention(nn.Module):
             mask= mask.unsqueeze(1)
         nbatches = query.size(0)
         # do all the linear projections in batch from d_model -> h x d_k
+        
+        #zip(self.linear, (query,key,value)) => linear[0],query   linear[1],key, linear[2],value
+        # 这个linear里面，每一个w是d_model * d_model,拆分来看， 可以认为是 h个 d_model * d_k，对应h个头
+        #把linear的结果进行拆分成  h个 就是了【view 后然后 transpose】
+        
+        #得到的query 是 batch * h * length * d_k
+        
         query, key, value = [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1,2)
                              for l, x in zip(self.linear, (query, key, value))]
+        
         x, self.attn = attention(query, key, value, mask = mask, dropout=self.dropout)
+        #乘完后，然后再给恢复回去
         x = x.transpose(1,2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linear[-1](x)
     
@@ -201,9 +216,6 @@ class PositionwiseFeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
     def forward(self, x):
         return self.w_2(self.dropout(F.relu(self.w_1(x))))
-
-
-
 
 
 class Embeddings(nn.Module):
