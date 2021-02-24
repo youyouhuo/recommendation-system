@@ -28,6 +28,9 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
         self.proj = nn.linear(d_model, vocab)
     def forward(self, x):
+        #log_softmax 就是对softmax 取log，
+        #参考：https://www.pythonf.cn/read/63846
+        #dim = -1 输入如果是 batch * row * col，  就是对每一行的col个值进行softmax
         return F.log_softmax(self.proj(x), dim = -1)
 
 
@@ -39,8 +42,22 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
-
+    def forward(self, x, mask):
+        """
+        实现 N * layer的前向，并对最后的输出进行norm，
+        每一层的layer由EncoderLayer 来进行实现
+        :param x:
+        :param mask:
+        :return:
+        """
+        for layer in self.layers:
+            x = layer(x, mask)
+        return self.norm(x)
+    
 class LayerNorm(nn.Module):
+    """
+    实现layerNorm
+    """
     def __init__(self, features, eps = 1e-6):
         super(LayerNorm, self).__init__()
         self.a_2 = nn.Parameter(torch.ones(features))
@@ -59,12 +76,19 @@ class SublayerConnection(nn.Module):
         super(SublayerConnection, self).__init__()
         self.norm = LayerNorm(size)
         self.dropout == nn.Dropout(dropout)
+        
     def froward(self, x, sublayer):
         return x + self.dropout(sublayer(self.norm(x)))
 
 class EncoderLayer(nn.Module):
     """
     self_attn and feed forward
+    这里不同于pytorch 官方代码中的实现，在pytorch实现中  最后是 
+        layernorm(x + dropout( attention(x)) 
+        layernorm(x + dropout( feedforward(x))
+    而这里是：
+        x + dropout(attention(layernorm(x)))
+        x + dropout(feedforward(layernorm(x)))
     """
     def __init__(self, size, self_attn, feed_forward, dropout):
         super(EncoderLayer, self).__init__()
@@ -88,6 +112,7 @@ class Decoder(nn.Module):
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
     def forward(self, x, memory, src_mask, tgt_mask):
+        #这里和encoder不同的地方是，这里还是使用了encoder的最后的输出
         for layer in self.layers:
             x = layer(x, memory, src_mask, tgt_mask)
         return self.norm(x)
@@ -101,6 +126,7 @@ class DecoderLayer(nn.Module):
         self.feed_forward = feed_forward
         self.sublayer = clones(SublayerConnection(size, dropout), 3)
     def forward(self, x, memory, src_mask, tgt_mask):
+        #在这里，encoder最后的输出会作为memory，也就是这个attention的key和value
         m = memory
         x = self.sublayer[0](x, lambda x : self.self_attn(x, x, x, tgt_mask))
         x = self.sublayer[1](x, lambda x : self.src_attn(x, m, m, src_mask))
