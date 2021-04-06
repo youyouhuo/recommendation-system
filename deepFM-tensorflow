@@ -7,7 +7,7 @@ from sklearn.metrics import roc_auc_score
 
 
 #ref :https://github.com/princewen/tensorflow_practice/blob/master/recommendation/Basic-DeepFM-model/DeepFM.py
-
+#ref :https://www.jianshu.com/p/6f1c2643d31b
 class DeepFM(BaseEstimator, TransformerMixin):
 
     def __init__(self, feature_size, field_size,
